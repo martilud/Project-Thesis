@@ -1,0 +1,160 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\newtheorem{theorem}{theorem}[section]
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{lemma}[theorem]{Lemma}
+
+\newcommand{\half}{\frac{1}{2}}
+
+%\newcommand{\div}{\text{div}}
+\newcommand{\grad}{\nabla}
+\newcommand{\pd}[2]{\frac{\partial #1}{\partial #2}}
+\newcommand{\diff}[1]{\frac{\partial}{\partial #1}}
+
+\newcommand{\bf}{\mathbf{#1}}
+
+\newcommand{\norm}[2]{\|#1\|_{#2}}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand*{\L}{\mathcal{L}}
+\newcommand{\bf}{\mathbf{#1}}
+\newcommand{\st}{\text{ s.t }}
+
+\title{Total Variation}
+\author{Martin Ludvigsen}
+\date{September 2019}
+
+\begin{document}
+\textit{Inverse problems} are a big part of science and engineering problems. 
+In many settings one starts with some quanity and using some causal model calculate some response,
+in this context called a \textit{forward problem}.
+In inverse problems, one goes the other way around, 
+and attempts to calculate the quantities and the causal model given some responses.
+Inverse problems have been around in various shapes and forms, the mathematical and computational tools
+required for solving them have only been available since the previous century.
+They are an integral part of physics, signal analysis and lately, machine learning.
+The mathematical framework for analysing and solving inverse problems
+usually start from a probabilistic/bayesian starting point. 
+For solving one uses tools from functional analysis, variational calculus
+and optimization.
+
+\subsection{An introductory example}
+Imagine you have a set of responses $(y)_n \in \R$, and some corresponding measurements, $(x)_n \in \R^d$,
+and you want to know the how they relate. This is a daunting task at first glance. 
+If you are given access to all possible mathematical relations, many solutions \textit{exist},
+but there are infinitely many! Just think of fitting an interpolating polynomial. 
+If no $\bf{x}$ are identical, there is only one $n-th$ degree polynomial that fits the data.
+This means we can add an arbitrary point, and there are infinitely many $(n+1)-th$ degree polynomials that fit the data.
+We assume the relationship is linear,
+\begin{equation}
+  y = \bf{x}^\top \bf{\beta} + \beta_0,
+\end{equation}
+where $\bf{beta} \in \R^d$ is a linear operator.
+If we have as many data points as the dimensionality of our data $n = d$, we again have infinitely many solutions, as we can use the same method of adding an arbitrary point.
+Thus, with $n = d + 1$, there is only one $n$-dimensional hyperplane that fits the data perfectly. The solution is unique.
+With $n > d + 1$, we have a problem if the data does not lie on a $n$-dimensional hyperplane.
+There are no solutions with our current model. There are simply 
+
+
+One has to start with some \textit{a priori} assumption of the system
+
+\begin{equation}
+  \mathbf{y} = A\mathbf{f} + \sigma \mathbf{w} 
+\end{equation}
+
+\subsection{Regularization}
+\begin{equation}
+  \min_{z \in \R^d} \half \|z - f\|_2^2 + \lambda \|z|_1
+\end{equation}
+
+\begin{equation}
+  \min_{z \in \R^d} \half \|z - f\|_2^2 + \lambda \|z|_2
+\end{equation}
+
+\begin{equation}
+  \min_{z \in \R^d} \half \|z - f\|_2^2 + \lambda (\|z|_1 + \alpha \|z\|_2) 
+\end{equation}
+
+\begin{equation}
+  \min_{z \in L^2(\Omega)} \half \int_\Omega ((z-f)^2) dx + \lambda \int_\Omega |\nabla z| dx
+\end{equation}
+
+\subsection{Imaging}
+\section{Some results on Total Variation}
+\section{Numerical Methods}
+\subsection{Dual projection}
+\subsection{Augmented Lagrangian}
+Introduce slack variable,
+\begin{equation}
+  \min \half \|Az - f\|^2 + \lambda \int |\nabla u| \st u = z.
+\end{equation}
+Write augmented lagrangian,
+\begin{equation}
+  \L_A(u,z;p) = \half \|Az - f\|^2 + \lambda \int |\nabla u| 
+  - \beta \langle \frac{p}{\beta},u-z \rangle + frac{\beta}{2} \|u-z\|^2
+\end{equation}
+Iterations become,
+\begin{align*}
+  z^{(k+1)} = \argmin_\tilde{z} \L_A(u,\tilde{z};p) 
+  \iff A^\ast(Az^{(k+1)} - f) + p + \beta(z^{(k+1)} - u) = 0 \\
+  u^{(k+1)} = \argmin_\tilde{u} \L_A(\tilde{u},z;p) 
+  \iff u^{(k+1)} = \argmin_u \frac{\beta}{2} \| u - z^{(k+1)} - frac{p}{\beta}\|^2 
+  + \lambda \int |\nabla u| \\
+  p^{(k+1)} = p^{(k)} - \beta (u-z)
+\end{align*}
+\subsection{Chambolle-Pock}
+Want to solve $\min_u f = \min_u \half \norm{Au - f}{2}^2 + \lambda \norm{Du}{1}$ 
+Can calculate gradient that is discontinuous
+\begin{equation}
+  \nabla f = A^\ast(Ax-y) + \lambda D^\ast \sgn{Du}
+\end{equation}
+Note that for the total variation problem, $D^\ast = \grad^\ast = -\text{div}$.
+Write $\norm{z}{1} = \max_{p\in \R^m, \norm{p}{\infty} \le 1} p^\ast z$, with solution
+$\tilde{p}_i \begin{cases} =+1, z_i > 0 \\ \in [-1,1], z_i = 0 \\ =-1, z_i = -1 \end{cases}$.
+Notate this as $\tilde{p} \in \sgn z$. Now rewrite the primal problem
+\begin{equation}
+  \min_x \max_p \half \norm{Au - f}{2}^2 + \lambda p^T Du
+\end{equation}
+Duality, change the order of minimisation and maximisation
+\begin{equation}
+  \max_p \min_x \half \norm{Au - f}{2}^2 + \lambda p^T Du
+\end{equation}
+Want to find saddle point $(\bar{u}, \bar{p})$ of this thing (the lagrangian), i.e.
+\begin{align*}
+  A^\ast(A\bar{u} + \lambda D^\ast \bar{p} = A^\ast f \\
+  \bar{p} \in \sgn (D \bar{u])
+\end{align*}
+Idea of prox operators, i.e $u_{k+1}$ solves $\min_u \half \norm{u-u_k}{2}^2 + \sigma g(u)$ or 
+$u_{k+1} - u_k + \sigma \nabla g(u_{k+1}) = 0$ in differentiable cases.
+Apply this alternatively for $u$ and $p$a...
+...
+end up with iterations (with acceleration), 
+\begin{itemize}
+  \item $\hat{u}_{k+1} = u_k + \theta(u_k - u_{k-1})$
+  \item $p_{k+1} = \min \{1, \max \{-1, p_k + \sigma \lambda D \hat{u}_{k+1} \}\}$
+  \item $\delta + \sigma A^\ast A)u = u_k + \sigma A^ast f - \sigma \lambda D^\ast p_{k+1}$ 
+    (Divide by $\sigma$:
+    $\delta/\sigma + A^\ast A)u = u_k/\sigma + A^ast f - \lambda D^\ast p_{k+1}$)
+\end{itemize}
+Again remember $D = \nabla$ and $D^\ast = - \text{div}$. Here $\sigma$ and $\delta$ are step sizes.
+
+\section{Notes on results}
+
+\begin{itemize}
+  \item The projected gradient method seems to not be functioning as it should.
+  \item The idea is for ALM and ChambollePock to implement three versions,
+    one for denoising, one for some linear operator and one for convolutions. 
+    For the linear operator one we have to use something like CG to solve
+    the linear system and for convolutions we can use FFT
+    to directly solve the system.
+  \item We need some consistent convergence criterion.
+  \item We could try other discretizations for the gradient and
+    divergence, maybe even add step sizes.
+  \item Right now it seems as more iterations actually break
+    the solution.
+\end{itemize}
+\end{document}
+
+

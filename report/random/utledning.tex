@@ -1,0 +1,40 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+
+\newcommand{\half}{\frac{1}{2}}
+
+%\newcommand{\div}{\text{div}}
+\newcommand{\pd}[2]{\frac{\partial #1}{\partial #2}}
+\newcommand{\diff}[1]{\frac{\partial}{\partial #1}}
+\title{Total Variation}
+\author{Martin Ludvigsen}
+\date{September 2019}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+Reintroducing notation:
+\begin{equation}
+  \mathbf{y} = A\mathbf{f} + \sigma \mathbf{w} 
+\end{equation}
+In our setting, using $A = Id$, we can write the Total variation problem as
+\begin{equation}
+  \min_{z \in L^2(\Omega)} \half \int_\Omega ((z-f)^2) dx + \lambda \int_\Omega |\nabla z| dx
+\end{equation}
+%$\nabla \colon \R^{N\times M} \to \R^{N\times M \times 2}$, så er -\div den lineære operatoren $-\div\colon \R^{N\times M \times 2} \to \R^{N\times M}$ slik at $\sum_{i,j} (\nabla u)_{ij} \cdot p_{ij} = -\sum_{ij} u_{ij} (\div p)_{ij}$ for alle $u \in \R^{N\times M}$ og $p \in \R^{N\times M \times 2}$.
+Effings utleding, $p = (p_x + p_y)$
+\begin{equation}
+  \nabla ( \lambda \div p - f) = \nabla(\lambda (\pd{p_x}{x} + \pd{p_y}{y} - f)
+  = (\diff{x}(\lambda (\pd{p_x}{x} + \pd{p_y}{y} - f), \diff{y}((\pd{p_x}{x} + \pd{p_y}{y} - f))
+\end{equation}
+which in finite difference world is
+\begin{equation}
+  (\frac{(p_x)_{i+1j} - 2 (p_x)_{ij} +(p_x)_{i-1j}}{h_x^2} +
+  \frac{(p_y)_{i+1j+1} - (p_y)_{i+1j-1} - (p_y)_{i-1j+1} + (p_y)_{i-1j-1}}{4h_xh_y} - 
+  \frac{f_{i+1j} - f_{i-1j}}{2h_x}, \text{same but with y})
+\end{equation}
+\end{document}
+
