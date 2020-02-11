@@ -1,13 +1,17 @@
+from termcolor import colored
+import time
+from operator import itemgetter
+from scipy import sparse, linalg, signal, misc, fftpack, ndimage
+from scipy.linalg import circulant, toeplitz
+from mpl_toolkits.mplot3d import Axes3D
+import imageio
 import os
 import numpy as np
 import numpy.random
 import matplotlib.pyplot as plt
-from termcolor import colored
 import time
-from mpl_toolkits.mplot3d import Axes3D
-from operator import itemgetter
-from scipy.linalg import circulant, toeplitz
-import scipy.misc
+from PIL import Image
+from scipy.stats import ortho_group
 
 def unit_vector(vector):
     """ 
@@ -29,7 +33,6 @@ def safe_norm_div(x, y):
     if (np.linalg.norm(y) == 0.0):
         return 0.0
     return np.linalg.norm(x - y) / np.linalg.norm(y)
-
 
 def rank_r(m, d, r):
     """
@@ -100,9 +103,10 @@ def set_it_up_id(n,  h = 5, N_train = 50, N_test = 1, sigma = 0.05):
     X_train = numpy.random.multivariate_normal(mean_X, cov_X, N_train)
 
     # Noise
-    mean_eta = 0
-    cov_eta = 1
-    Eta_train = sigma * numpy.random.normal(mean_eta, cov_eta, N_train)
+    mean_eta = np.zeros(n)
+    ones = np.ones(n)
+    cov_eta = np.diag(ones)
+    Eta_train = sigma * numpy.random.multivariate_normal(mean_eta, cov_eta, N_train)
 
     # Create Y_i = X_i + Eta_i
     Y_train = np.zeros((N_train, n))
@@ -110,7 +114,7 @@ def set_it_up_id(n,  h = 5, N_train = 50, N_test = 1, sigma = 0.05):
 
     # Create the testing data
     X_test = np.random.multivariate_normal(mean_X, cov_X, N_test)
-    Eta_test = sigma * np.random.normal(mean_eta, cov_eta, N_test)
+    Eta_test = sigma * np.random.multivariate_normal(mean_eta, cov_eta, N_test)
     Y_test = np.zeros((N_test, n))
     Y_test = X_test + Eta_test
 
@@ -119,32 +123,98 @@ def set_it_up_id(n,  h = 5, N_train = 50, N_test = 1, sigma = 0.05):
 
     return piY_n, X_test, Y_test
 
-def set_it_up_image(images, amount, shape, h, N_train, N_test, sigma = 0.1):
-    N_image = len(images)
-    n = 256
-    test = np.array((n**2, n**2))
-    print("WORKED")
-    image_array = np.empty((N_image,) + shape)
-    X_train = np.empty((N_train,) + shape)
-    X_test = np.empty((N_test,) + shape)
-    Y_train = np.empty((N_train,np.prod(shape)))
-    Y_test = np.empty((N_test,) + shape)
-    for i in range(N_image):
-        image_array[i] = scipy.misc.imread('images/' + images[i], 'gray')/255.0
+def create_empirical_estimator_without_resize(image_array, amount, shape, h, N_train, N_test, sigma = 0.1):
+    N_image = len(image_array)
+    dtype = 'float64'
+    X_train = np.empty((N_train,) + shape, dtype)
+    X_test = np.empty((N_test,) + shape, dtype)
+    Y_train = np.empty((N_train,np.prod(shape)), dtype)
+    Y_test = np.empty((N_test,) + shape, dtype)
 
+    ii = 0
     for i in range(N_image):
-        indice = 0
         for j in range(amount[i]):
-            X_train[indice,:,:] = image_array[i]
-        indice += amount[i]
+            X_train[ii+j,:,:] = np.copy(image_array[i, :, :])
+        ii += amount[i]
     for i in range(N_train):
         Y_train[i,:] = X_train[i,:,:].reshape(np.prod(shape)) + sigma * np.random.normal(0,1,np.prod(shape))
-    X_test[0,:,:] = image_array[0]
-    Y_test[0,:,:] = X_test[0,:,:] + sigma * np.random.normal(0,1,np.prod(shape)).reshape(shape) 
-    print(Y_train.shape)
-    piY_n = pi_hat_n(covariance(Y_train[:,:(500*500)]), h = shape[0])
+    X_test[0,:,:] = np.copy(image_array[0, :, :])
+    Y_test[0,:, :] = X_test[0,:,:] + sigma * np.random.normal(0,1,np.prod(shape)).reshape(shape) 
+
+    piY_n = pi_hat_n(covariance(Y_train), h = h)
 
     return piY_n, X_test, Y_test
+
+def create_empirical_estimator(image_array, newshape, h, N_train, N_test, sigma = 0.1, calc = True):
+    N_image = len(image_array)
+    dtype = 'float64'
+    origshape = image_array[0].shape
+    u_train = np.empty((N_train+1,) + origshape, dtype)
+    #u_test = np.empty((N_test,) + origshape, dtype)
+    f_train = np.empty((N_train+1,) + origshape, dtype)
+    f_train_resized = np.empty((N_train+1,np.prod(newshape)), dtype)
+    #f_test = np.empty((N_test,) + origshape, dtype)
+    for i in range(N_train + 1):
+        u_train[i,:,:] = np.copy(image_array[0, :, :])
+    for i in range(N_train + 1):
+        f_train[i,:,:] = np.minimum(np.maximum(u_train[i,:,:] + sigma * np.random.normal(0,1,np.prod(origshape)).reshape(origshape), 0.0), 1.0)
+        f_train_image = Image.fromarray(f_train[i])
+        f_train_image = f_train_image.resize(newshape, Image.BICUBIC)
+        f_train_resized[i] = np.array(f_train_image).reshape(np.prod(newshape))
+    u = u_train[0]
+    f = f_train[0]
+    print("CREATING PROJECTION MATRIX")
+    t = time.time()
+    if (calc == True):
+        S = np.loadtxt("cov.txt")
+        Pi = pi_hat_n(S, h = h)
+    else:
+        Pi = pi_hat_n(covariance(f_train_resized), h = h)
+    u_hat = np.dot(f_train_resized[0], Pi).reshape(newshape)
+    u_hat_image = Image.fromarray(u_hat)
+    u_hat_image = u_hat_image.resize(origshape, Image.BICUBIC)
+    u_hat = np.array(u_hat_image)
+    print("TIME TO CALCULATE u_hat:", time.time() - t)
+    return u, f, u_hat
+
+def create_empirical_estimator_with_dataset():
+    return 0
+
+def create_empirical_estimator_alt(image_array, newshape, h, N_train, N_test, sigma = 0.1, calc = True):
+    N_image = len(image_array)
+    print(N_image)
+    dtype = 'float64'
+    origshape = image_array[0].shape
+    u_train = np.empty((N_train+1,) + origshape, dtype)
+    #u_test = np.empty((N_test,) + origshape, dtype)
+    f_train = np.empty((N_train+1,) + origshape, dtype)
+    f_train_resized = np.empty((N_train+1,np.prod(newshape)), dtype)
+    #f_test = np.empty((N_test,) + origshape, dtype)
+    for i in range(N_train):
+        u_train[i,:,:] = np.copy(image_array[i, :, :])
+    for i in range(N_train):
+        f_train[i,:,:] = u_train[i,:,:] + sigma * np.random.normal(0,1,np.prod(origshape)).reshape(origshape)
+        f_train_image = Image.fromarray(f_train[i])
+        f_train_image = f_train_image.resize(newshape, Image.LANCZOS)
+        f_train_resized[i] = np.array(f_train_image).reshape(np.prod(newshape))
+    u = u_train[671]
+    f = f_train[671]
+    print("CREATING PROJECTION MATRIX")
+    t = time.time()
+    if (calc == True):
+        S = np.loadtxt("cov.txt")
+        Pi = pi_hat_n(S, h = h)
+    else:
+        Pi = pi_hat_n(covariance(f_train_resized), h = h)
+
+    Pi = pi_hat_n(covariance(f_train), h = h)
+    #u_hat = np.dot(f_train_resized[671], Pi).reshape(newshape) 
+    u_hat = np.dot(f_train[671], Pi).reshape(newshape)
+    #u_hat_image = Image.fromarray(u_hat)
+    #u_hat_image = u_hat_image.resize(origshape, Image.LANCZOS)
+    #u_hat = np.array(u_hat_image)
+    print("TIME TO CALCULATE u_hat:", time.time() - t)
+    return u, f, u_hat
 
 def empirical_estimators(A, Y, Pi_n):
     """
@@ -163,7 +233,6 @@ def empirical_estimators(A, Y, Pi_n):
 
     return X, Eta
 
-def soft_thresholding(lam, vec):
     """
     soft thresholding a vector with a threshold being lam
     TODO: replace with inbuilt func
@@ -183,71 +252,57 @@ def sgn(v):
     """
     return np.sign(v)
 
-def positive_part(v):
-    """
-    returns the positive part of a function
-    """
-    u = np.zeros(len(v))
-    return np.maximum(v, u)
-
-def fixed_point_iterations_lam(A, y, lam, alpha, z = None, max_iter = 500):
-    """
-    fixed point iterations for the elastic net solution
-    """
-    if z is None:
-        z = np.zeros((A.shape[1], 1))
-
-    u, s, v = np.linalg.svd(np.dot(A.T, A))
-    tau = (np.sum(s) + s[-1]) / 2.0
-    M = np.dot(A.T, A)
-    Ay = np.dot(A.T, y)
-    Mat = tau * np.eye(M.shape[0]) - M
-    factor = 1.0 / (tau + alpha * lam)
-    error = np.zeros(max_iter - 1)
-
-    for i in range(max_iter):
-        old_z = np.copy(z)
-        # import pdb; pdb.set_trace()
-        z = factor * soft_thresholding(lam, np.dot(Mat, z) + Ay)
-    return z
-
 def covariance(Z):
     """
     straightforward computation of the empirical covariance
     """
-    n = Z.shape[0]
+    N = Z.shape[0]
     S = np.zeros((Z.shape[1], Z.shape[1]))
-    for i in range(n):
-        np.outer(Z[i, :], Z[i, :]) 
-        #S = np.outer(Z[i, :], Z[i, :])
-        S += 1.0 / n * S
+    for i in range(N):
+        S += 1.0 / N * np.outer(Z[i, :], Z[i, :])
+    return S
+
+def covariance_matrix(Z):
+    N = Z.shape[0]
+    S = np.zeros((Z.shape[1]*Z.shape[2], Z.shape[1]*Z.shape[2]))
+
+    for i in range(N):
+        S += 1.0 / N * np.outer(Z[i, :, :], Z[i, :,:])
+        print(i)
     return S
 
 def pi_hat_n(S, h = 1):
     """
     compute the empirical projection of a given rank h
     """
-    eigvals, eigvectors = np.linalg.eigh(S)
-    eigvectors = eigvectors[:, -h:].T[::-1].T
+    #np.savetxt("cov.txt", S) 
+    n = S.shape[0] 
+    #plt.spy(S)
+    #plt.show()
+    #plt.imsave("COV.png", S, cmap = "gray")
+    eigv, eigvectors = linalg.eigh(S, eigvals = (n-h,n-1))
+    print(eigv)
+    #eigv, eigvectors = linalg.eigh(S)
+    plt.semilogy((eigv[::-1])[:h])
+    plt.xlabel("Eigenvalue number")
+    plt.ylabel("Eigenvalue")
+    plt.show()
+    #print("Found eigvals")
+    eigvectors = eigvectors[:,-h:].T[::-1].T
+    #eigvectors = eigvectors[:, -h:].T[::-1].T
     P = eigvectors.dot(eigvectors.T)
     return P
-
-
-def elastic_norm(x, alpha = 1):
-    """
-    compute |x|_1 + alpha |x|_2^2
-    """
-    return np.linalg.norm(x, 1) + alpha * np.linalg.norm(x, 2)
 
 def add_gaussian_noise(f, sigma=0.001):
     """
     Adds gaussian noise to image
+    Assumes image is rescaled to lie between 1.0 and 0.0.
     """
     out = np.zeros((2,) + f.shape, f.dtype)
 
     shape = f.shape
 
-    out = f + sigma* numpy.random.normal(0,1,shape[0]*shape[1]).reshape(shape)
+    out = np.minimum(np.maximum(f + sigma* numpy.random.normal(0,1,np.prod(shape)).reshape(shape), 0.0), 1.0)
     return out
 
 def add_gaussian_blurring(f, ker, sigma):
@@ -305,7 +360,6 @@ def div(f):
 
     # Return sum along x-axis
     return np.sum(out, axis=0)
-
 def norm1(f, axis=0, keepdims=False):
     """
     returns 1-norm of image f of size n,m
@@ -332,6 +386,13 @@ def psnr(noisy,true):
     """
     Calculates psnr between two images
     """
-    mse = np.mean((noisy-true)**2)
-    return 20*np.log10(mse) - 10*np.log10(np.max(np.max(noisy),np.max(true)))
+    MSE = np.mean((noisy-true)**2)
+    MAX = max(np.max(noisy),np.max(true))
+    return 10 * np.log10(MAX**2/MSE)
+    #return 20*np.log10(mse) - 10*np.log10(np.max(np.max(noisy),np.max(true)))
+
+def dualitygap_denoise(lam,u,divp,f):
+    return 0.5 * np.linalg.norm(u - f)**2 + lam * np.sum(better_norm1(grad(u))) + 0.5 * np.linalg.norm(f + divp)**2 - 0.5 * np.linalg.norm(f)**2
+    #return 0.5 * np.linalg.norm(u - f)**2 + lam * np.sum(better_norm1(grad(u))) - 0.5 * np.linalg.norm(f - divp)**2 + 0.5 * np.linalg.norm(f)**2 + np.linalg.norm(divp)**2
+
 

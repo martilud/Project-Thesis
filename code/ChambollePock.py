@@ -1,132 +1,120 @@
-import numpy as np
-from scipy import sparse, linalg, signal, misc, fftpack
-import matplotlib.pyplot as plt
-#import prox_tv as ptv
 from utils import *
-from totalvariation import *
+from projectedGradient import *
+import scipy
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
+#def A(f,ker):
+#    return fftpack.idctn(ff*fker, shape=s, norm='ortho') #signal.fftconvolve(f,ker,mode='same')
 
-def A(f,ker):
-    return fftpack.idctn(ff*fker, shape=s, norm='ortho') #signal.fftconvolve(f,ker,mode='same')
+def ChambollePock_denoise_conv(f, lam, tau = 0.50, sig = 0.30, theta = 1.0, acc = False, tol = 1.0e-1, u0 = None):
+    if u0 is  None:
+        #u = np.copy(f)
+        #u_prev = np.copy(f)
+        #u_hat = np.copy(f)
+        u = np.zeros(f.shape, f.dtype)
+        u_prev = np.zeros(f.shape, f.dtype) 
+        u_hat = np.zeros(f.shape, f.dtype) 
+    else:
+        u = np.copy(u0)
+        u_prev = np.copy(u0)
+        u_hat = np.copy(u0)
 
-def ChambollePock_denoise(f, lam, tau = 0.10, sig = 0.30, theta = 1.0, acc = False, tol = 1.0e-5):
+    #p_hat = sig*grad(u_hat)
+    #p = lam * p_hat / np.maximum(lam, better_norm1(p_hat))
     p = np.zeros((2,) + f.shape, f.dtype)
     p_hat = np.zeros((2,) + f.shape, f.dtype)
-    u = np.copy(f)
-    u_prev = np.copy(f)
-    u_hat = np.copy(f)
-    maxiter = 100
-    costlist = np.zeros(maxiter+1)
-    #costlist[0] = cost(u,f,lam)
+    divp = div(p)
+    maxiter = 500
+    dualitygap_list= np.zeros(maxiter+1)
+    dualitygap_list[0] = dualitygap_denoise(lam,u,divp,f)
+    psnr_list = np.zeros(maxiter)
+    #psnr_list[0] = psnr(u,f)
     if acc:
-        gam = 0.3*lam
-    f_over_lam = f/lam
-    for i in range(maxiter):
+        gam = 0.5
+    i = 0
+    res= tol + 1.0
+    plot_iterations = [10, 100, 500]
+    while (i < maxiter and res > tol): # and min > tol)):
         u_prev = np.copy(u)
         p_hat = p + sig*grad(u_hat)
-        p = p_hat / np.maximum(1.0, better_norm1(p_hat))
-        u = lam*tau/(lam + tau) * (u/tau + f_over_lam + div(p)) 
+        p = lam * p_hat / np.maximum(lam, better_norm1(p_hat))
+        divp = div(p)
+        u = 1/(1 + tau) * (u + tau * divp + tau *f) 
         if (acc):
            theta = 1.0/np.sqrt(1.0 + 2.0*gam*tau) 
            tau = theta*tau
            sig = sig/theta
         u_hat = u + theta*(u - u_prev)
-        #costlist[i+1] = cost(u,f,lam)
-    return u, costlist
+        dualitygap_list[i+1] = dualitygap_denoise(lam,u,divp,f)
+        res = dualitygap_list[i+1]/dualitygap_list[0]
+        if (i+1 in plot_iterations):
+            plt.imsave("Lenna" + str(i) + ".png", u, cmap = "gray")
+        psnr_list[i] = psnr(u,u_prev)
+        i+=1
+        #print(i)
+    return u, dualitygap_list, psnr_list, i 
+ 
+def ChambollePock_denoise(f, lam, tau = 0.50, sig = 0.30, theta = 1.0, acc = False, tol = 1.0e-1, u0 = None):
 
-def ChambollePock_matrix(f, lam, A, tau = 0.10, sig = 0.30, theta = 1.0, acc = False, tol = 1.0e-7):
-    shape = f.shape
-    dtype = f.dtype
-    p = np.zeros((2,) + shape, dtype)
-    p_hat = np.zeros((2,) + shape, dtype)
-    u = np.copy(f)
-    u_prev = np.copy(f)
-    u_hat = np.copy(f)
-
-    mat = scipy.sparse.eye(shape[0]*shape[1]) + tau/lam * A.dot(A.H)     
-
+    if u0 is  None:
+        #u = np.copy(f)
+        #u_prev = np.copy(f)
+        #u_hat = np.copy(f)
+        u = np.zeros(f.shape, f.dtype)
+        u_prev = np.zeros(f.shape, f.dtype) 
+        u_hat = np.zeros(f.shape, f.dtype) 
+    else:
+        u = np.copy(u0)
+        u_prev = np.copy(u0)
+        u_hat = np.copy(u0)
+    p = np.zeros((2,) + f.shape, f.dtype)
+    p_hat = np.zeros((2,) + f.shape, f.dtype)
+    divp = div(p)
     maxiter = 100
-    costlist = np.zeros(maxiter+1)
-    costlist[0] = cost_matrix(A,u,f,lam)
+    dualitygap_init = dualitygap_denoise(lam,u,divp,f)
     if acc:
-        gam = 0.3*lam
-    rhs_f = tau/lam*(A.H).dot(f.reshape(shape[0]*shape[1]))
-    for i in range(maxiter):
+        gam = 0.5
+    i = 0
+    res= tol + 1.0
+    #plot_iterations = [10, 100, 500]
+    while (i < maxiter and res > tol): # and min > tol)):
         u_prev = np.copy(u)
-        p_hat = (p + sig*grad(u_hat))
-        p = p_hat / np.maximum(1.0, better_norm1(p_hat))
-        u, _ = scipy.sparse.linalg.cg(mat, (u + tau*div(p)).reshape(shape[0]*shape[1])+rhs_f, x0 = u.reshape(shape[0]*shape[1]), tol = tol)
-        u = u.reshape(shape)
+        p_hat = p + sig*grad(u_hat)
+        p = lam * p_hat / np.maximum(lam, better_norm1(p_hat))
+        divp = div(p)
+        u = 1/(1 + tau) * (u + tau * divp + tau *f) 
         if (acc):
            theta = 1.0/np.sqrt(1.0 + 2.0*gam*tau) 
            tau = theta*tau
            sig = sig/theta
         u_hat = u + theta*(u - u_prev)
-        costlist[i+1] = cost_matrix(A,u,f,lam)
-    return u, costlist
-
-#def ChambollePock_conv(f, lam, tau = 0.1, sig = 0.1, theta = 1.0, tol = 1.0e-5):
-#    p = np.zeros((2,) + f.shape, f.dtype)
-#    p_hat = np.zeros((2,) + f.shape, f.dtype)
-#    u = np.zeros(f.shape, f.dtype)
-#    u_prev = np.zeros(f.shape, f.dtype)
-#    u_bar = np.zeros(f.shape, f.dtype)
-#    u_hat = np.zeros(f.shape, f.dtype)
-#    maxiter = 10
-#    for i in range(maxiter):
-#        u_prev = u
-#        #p = np.maximum(1, np.minimum(-1, p + sig*lam*grad(u_hat)))
-#        p_hat = p + sig*lam*grad(u_hat)
-#        p = p_hat/np.max(1,better_norm1(p_hat))
-#        u_bar = u - tau*lam*div(p)
-#        print(u_bar.shape)
-#        u = fftpack.idctn(np.divide(tau*ff*fker_conj + fftpack.dctn(u_bar,shape=s, norm='ortho'),(tau*fker2 + 1)),shape=s, norm='ortho' ) 
-#        print(u)
-#        plt.imshow(u,cmap='gray')
-#        plt.show()
-#        u_hat = u + theta*(u - u_prev)
-#    return u
-
-def createLaplacian(N):
-    diag=np.ones([N*N])
-    mat=scipy.sparse.spdiags([diag,-2*diag,diag],[-1,0,1],N,N)
-    I=scipy.sparse.eye(N)
-    return scipy.sparse.kron(I,mat,format='csr')+scipy.sparse.kron(mat,I,format='csr')
-
-if __name__ == "__main":
-    Originalf = misc.imread('images/Lenna.jpg', 'jpg')
+        if (i%10 == 0):
+            res = dualitygap_denoise(lam,u,divp,f)/dualitygap_init
+        #if (i+1 in plot_iterations):
+        #    plt.imsave("Lenna" + str(i) + ".png", u, cmap = "gray")
+        i+=1
+        #print(i)
+    return u   
+if __name__ == "__main__":
+    Originalf = imageio.imread('images/Lenna.jpg', pilmode = 'F')
     Originalf = Originalf/255.0
     f = np.copy(Originalf)
-    
-    #f = np.zeros((100,100))
-    #f[25:74,25:75] = 1.0
     shape = f.shape
     nx = f.shape[0]
     ny = f.shape[1]
-    #A = createLaplacian(nx)
-    A = scipy.sparse.eye(f.shape[0]**2)
-    #plt.imshow(g.reshape(shape), cmap = 'gray')
-    #plt.show()
     sigma = 0.1
     f = add_gaussian_noise(f,sigma)
-    lam = 0.5
-    result,costlist = ChambollePock_matrix(f, lam, A, tau = 0.10, sig = 0.10, theta = 1.0)
-    result1,costlist1 = ChambollePock_denoise(f,lam, tau=0.1, sig = 0.1, theta = 1.0)
-    plt.semilogy(costlist, '-')
-    plt.semilogy(costlist1)
+
+    lam = 0.1
+    #result,costlist = ChambollePock_matrix(f, lam, A, tau = 0.10, sig = 0.10, theta = 1.0)
+    result1,costlist1 = ChambollePock_denoise(f,lam,tau=0.25, sig = 0.25,theta = 1.0, tol = 1.0e-2)
+    #result1, costlist1 = projected_gradient(f,lam,tau = 0.25, tol = 1.0e-10)
+    #plt.semilogy(costlist, '-')
+    plt.loglog(costlist1)
+    plt.grid()
     plt.show()
-    fig = plt.figure()
-    ax = fig.subplots(1,2)
-    pos = ax[0].imshow(result, cmap = 'gray')
-    pos = ax[1].imshow(result1, cmap ='gray')
-    fig.colorbar(pos)
+    plt.imshow(result1, cmap='gray')
     plt.show()
-    #hx = 1./(nx+1)
-    #hy = 1./(ny+1)
-    #dim = 2
-    #sigma = 0.1
-    #kx = 10
-    #ky = 10
-    #f = add_gaussian_noise(f,sigma)
     ##ker = np.outer(signal.gaussian(2*nx,sigma), signal.gaussian(2*ny, sigma))
     ##ker = ker[nx:, ny:]
     ##ker = ker/np.sum(ker)
@@ -147,29 +135,9 @@ if __name__ == "__main":
     ##plt.imshow(f,cmap='gray')
     ##plt.show()
     #
-    #lam = 0.1
-    #time1 = time.time()
-    #result,costlist = ChambollePock_denoise(f, lam)
-    #time1 = time.time() - time1
-    #time2 = time.time()
-    #result_acc,costlist_acc = ChambollePock_denoise(f, lam,tau = 0.1, acc = True)
-    #time2 = time.time() - time2
-    ##time3 = time.time()
-    ##result_other,costlist_other = projected_gradient(f, lam)
-    ##time3 = time.time() - time3
-    #
-    #plt.plot(costlist)
-    #plt.plot(costlist_acc)
-    ##plt.plot(costlist_other)
-    #plt.show()
-    #print(cost(result,f,lam), np.linalg.norm(result - Originalf), time1)
-    #print(cost(result_acc,f,lam),np.linalg.norm(result_acc - Originalf), time2)
-    ##print(cost(result_other,f,lam),np.linalg.norm(result_other - Originalf), time3)
-    #fig = plt.figure()
-    #ax = fig.subplots(1,3)
-    #ax[0].imshow(f, cmap = 'gray')
-    ##ax[1].imshow(result_other, cmap = 'gray')
-    #ax[1].imshow(result, cmap = 'gray')
-    #ax[2].imshow(result_acc, cmap = 'gray')
-    #plt.show()
+    fig = plt.figure()
+    ax = fig.subplots(1,2)
+    ax[0].imshow(f, cmap = 'gray')
+    ax[1].imshow(result1, cmap = 'gray')
+    plt.show()
 
