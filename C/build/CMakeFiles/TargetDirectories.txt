@@ -1,0 +1,3 @@
+/home/martin/Project-Thesis/code/C/build/CMakeFiles/rebuild_cache.dir
+/home/martin/Project-Thesis/code/C/build/CMakeFiles/main.dir
+/home/martin/Project-Thesis/code/C/build/CMakeFiles/edit_cache.dir
